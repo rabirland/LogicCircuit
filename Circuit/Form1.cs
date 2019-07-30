@@ -31,19 +31,21 @@ namespace Circuit
 		private int? _selectedPort;
 
 		// Dragging
-		private NodeEntry _dragging = null;
-		private bool _wasDragging = false;
+		private NodeEntry _interacted = null;
+		private bool _didDragging = false;
+		private bool _isPressed = false;
 		private Point _dragStart = new Point();
 		private Point _nodeLocationAtDragStart = new Point();
 
 		//Drawing
 		private Pen _outlinePen = new Pen(Color.Black, 3);
 		private Pen _selectedOutlinePen = new Pen(Color.Cyan, 3);
-		private Brush _offPortBrush = Brushes.Red;
-		private Brush _onPortBrush = Brushes.Lime;
+		private Brush _offBrush = Brushes.Red;
+		private Brush _onBrush = Brushes.Lime;
 		private Brush _iconBackgroundBrush = Brushes.White;
 		private int _portRadius = 15;
 		private int _iconMargin = 20;
+		private float _interactiveZoneRatio = 0.3f;
 
 		public Form1()
 		{
@@ -53,6 +55,8 @@ namespace Circuit
 		private void Form1_Load(object sender, EventArgs e)
 		{
 			this.DoubleBuffered = true;
+
+			this._circuit.OnUpdate += this.OnCircuitUpdate;
 		}
 
 		private void Button1_Click(object sender, EventArgs e)
@@ -66,7 +70,6 @@ namespace Circuit
 			Node andNode = new LogicCircuit.Nodes.OrNode();
 			this.AddNode(andNode);
 		}
-
 
 		private void Button3_Click(object sender, EventArgs e)
 		{
@@ -88,38 +91,42 @@ namespace Circuit
 
 		private void CircuitPanel_MouseDown(object sender, MouseEventArgs e)
 		{
-			this._dragStart = e.Location;
-			this._dragging = this.GetNodeAtLocation(e.Location);
-			if (this._dragging != null)
+			this._interacted = this.GetNodeAtLocation(e.Location);
+			if (this._interacted != null)
 			{
-				this._nodeLocationAtDragStart = this._dragging.Location;
+				this._nodeLocationAtDragStart = this._interacted.Location;
 
-				if (this._dragging.Node is InteractiveNode intN)
+				if (this._interacted.IsInteractive && this.CalculateInteractiveZone(this.CalculateIconRect(this._interacted.Rect)).Contains(e.Location))
 				{
-					intN.Press();
+					this._isPressed = true;
+					((InteractiveNode)this._interacted.Node).Press();
+				}
+				else
+				{
+					this._dragStart = e.Location;
 				}
 			}
 		}
 
 		private void CircuitPanel_MouseUp(object sender, MouseEventArgs e)
 		{
-			if (this._dragging != null && this._dragging.Node is InteractiveNode intN)
+			if (this._interacted != null && this._interacted.Node is InteractiveNode intN && this._isPressed)
 			{
 				intN.Release();
 			}
-			this._dragging = null;
-			this._wasDragging = false;
+			this._interacted = null;
+			this._didDragging = false;
 		}
 
 		private void CircuitPanel_MouseMove(object sender, MouseEventArgs e)
 		{
-			if (this._dragging != null)
+			if (this._interacted != null)
 			{
-				this._wasDragging = true;
+				this._didDragging = true;
 				int deltaX = e.Location.X - this._dragStart.X;
 				int deltaY = e.Location.Y - this._dragStart.Y;
 
-				this._dragging.Location = new Point(this._nodeLocationAtDragStart.X + deltaX, this._nodeLocationAtDragStart.Y + deltaY);
+				this._interacted.Location = new Point(this._nodeLocationAtDragStart.X + deltaX, this._nodeLocationAtDragStart.Y + deltaY);
 
 				this.CircuitPanel.Refresh();
 			}
@@ -132,86 +139,82 @@ namespace Circuit
 				throw new Exception("Unexpected selection error");
 			}
 
-			if (this._dragging != null) // _dragging should be auto-filled in the MouseDown listener
+			if (this._didDragging)
 			{
-				if (!this._wasDragging && e.Button == MouseButtons.Left)
+				return;
+			}
+
+
+			if (e.Button == MouseButtons.Left)
+			{
+				if (this._interacted != null) // _dragging should be auto-filled in the MouseDown listener, if it's null => the user hasn't clicked on a node
 				{
-					bool portSelected = false;
-					// Check if we clicked on an input port
-					for (int i = 0; i < this._dragging.Node.InputCount; i++)
+					if (this.IsNodeInputPortClicked(this._interacted, e.Location, out int portNumber)) // Check if we clicked on an input port
 					{
-						var pos = this.CalculateInputPortLocation(this._dragging, i);
-
-						if (DistanceBetween(pos.X, pos.Y, e.X, e.Y) < this._portRadius + this._outlinePen.Width)
+						// There is already have a selected output port and not on the same object
+						if (this._selectedPort != null && this._selectedPort == 0 && this._selected != this._interacted)
 						{
-							portSelected = true;
+							this.AddWire(new LogicCircuit.Circuit.Wire(this._selected.Node, this._interacted.Node, portNumber));
 
-							// There is already have a selected output port and not on the same object
-							if (this._selectedPort != null && this._selectedPort == 0 && this._selected != this._dragging)
-							{
-								this.AddWire(new LogicCircuit.Circuit.Wire(this._selected.Node, this._dragging.Node, i + 1));
-
-								// Clear port selection
-								this._selected = null;
-								this._selectedPort = null;
-							}
-							else // No port selected OR there was an input port selected OR we tried to connect a gate with itself => replace the selection
-							{
-								// Mark port selection
-								this._selected = this._dragging;
-								this._selectedPort = i + 1; // No current selected port => select the clicked one
-							}
+							// Clear port selection
+							this._selected = null;
+							this._selectedPort = null;
+						}
+						else // No port selected OR there was an input port selected OR we tried to connect a gate with itself => replace the selection
+						{
+							// Mark port selection
+							this._selected = this._interacted;
+							this._selectedPort = portNumber; // No current selected port => select the clicked one
 						}
 					}
-
-					if (!portSelected) // No port was clicked
+					else if (IsNodeOutputPortClicked(this._interacted, e.Location)) // No input port was selected => Check is the output port was selected
 					{
-						// Check is the output port was selected
-						Point outputPos = this.CalculateOutputPortLocation(this._dragging);
-						if (DistanceBetween(outputPos.X, outputPos.Y, e.X, e.Y) < this._portRadius + this._outlinePen.Width) // Clicked on output port
+						// There was an input port selected and not on the same object => connect
+						if (this._selectedPort != null && this._selectedPort > 0 && this._selected != this._interacted)
 						{
-							// There was an input port selected and not on the same object => connect
-							if (this._selectedPort != null && this._selectedPort > 0 && this._selected != this._dragging)
-							{
-								this.AddWire(new LogicCircuit.Circuit.Wire(this._dragging.Node, this._selected.Node, this._selectedPort.Value));
+							this.AddWire(new LogicCircuit.Circuit.Wire(this._interacted.Node, this._selected.Node, this._selectedPort.Value));
 
-								// Clear port selection
-								this._selected = null;
-								this._selectedPort = null;
-							}
-							else // There was no port selected OR there was an input port selected OR we clicked on an input port but on the same object => replace the selection
-							{
-								this._selected = this._dragging;
-								this._selectedPort = 0;
-							}
+							// Clear port selection
+							this._selected = null;
+							this._selectedPort = null;
 						}
-						else // Not clicked on output port either => simply clicked on the object somewhere
+						else // There was no port selected OR there was an input port selected OR we clicked on an input port but on the same object => replace the selection
 						{
-
+							this._selected = this._interacted;
+							this._selectedPort = 0;
 						}
+					}
+					else // Not clicked on output port either => simply clicked on the object somewhere
+					{
+
 					}
 				}
-				else if(e.Button == MouseButtons.Right)
+				else // Clicked outside of a node
 				{
-					this._selected = _dragging;
+					this._selected = null;
 					this._selectedPort = null;
 				}
 			}
-			else // Clicked outside of any node
+			else if (e.Button == MouseButtons.Right)
 			{
-				this._selected = null;
+				this._selected = _interacted;
 				this._selectedPort = null;
 			}
-			
+
 			// Stop Dragging
-			this._dragging = null;
-			
+			this._interacted = null;
+
 			this.CircuitPanel.Refresh();
 		}
 
 		private void CircuitPanel_Paint(object sender, PaintEventArgs e)
 		{
 			this.RepaintCircuit(e.Graphics);
+		}
+
+		private void OnCircuitUpdate()
+		{
+			this.Invoke(new Action(this.CircuitPanel.Refresh)); // Refresh the panel on the main thread
 		}
 
 		// Tools
@@ -241,7 +244,7 @@ namespace Circuit
 			// Second Draw the nodes
 			foreach (var node in this._nodes)
 			{
-				var center = CalculateCenter(node);
+				var center = CalculateCenter(node.Rect);
 
 				bool isNodeSelected = this._selected == node;
 				bool isAnyPortSelected = this._selectedPort != null;
@@ -255,7 +258,7 @@ namespace Circuit
 					g.DrawLine(this._outlinePen, inputPos.Value, center);
 
 					var inputPortRect = new RectangleF(inputPos.Value.X - halfRadius, inputPos.Value.Y - halfRadius, this._portRadius, this._portRadius);
-					g.FillEllipse(this._offPortBrush, inputPortRect);
+					g.FillEllipse(this._offBrush, inputPortRect);
 					g.DrawEllipse(inputPortOutLinePen, inputPortRect);
 				}
 
@@ -264,11 +267,11 @@ namespace Circuit
 				g.DrawLine(this._outlinePen, outputPos, center);
 				var outputPortRect = new RectangleF(outputPos.X - halfRadius, outputPos.Y - halfRadius, this._portRadius, this._portRadius);
 				Pen outputPortOutLinePen = (this._selected == node && this._selectedPort == 0) ? this._selectedOutlinePen : this._outlinePen;
-				g.FillEllipse(this._offPortBrush, outputPortRect);
+				g.FillEllipse(this._offBrush, outputPortRect);
 				g.DrawEllipse(outputPortOutLinePen, outputPortRect);
 
 				// Draw Icon
-				var iconRect = new Rectangle(node.Location.X + this._iconMargin + this._portRadius, node.Location.Y + this._iconMargin, node.Size.Width - (this._iconMargin * 2) - (this._portRadius * 2), node.Size.Height - (this._iconMargin * 2));
+				var iconRect = this.CalculateIconRect(node.Rect);
 				if (node.Node is AndNode) this.DrawAND(g, iconRect, node);
 				else if (node.Node is OrNode) this.DrawOR(g, iconRect, node);
 				else if (node.Node is XorNode) this.DrawXOR(g, iconRect, node);
@@ -324,9 +327,46 @@ namespace Circuit
 			return new Point(entry.Location.X + entry.Size.Width - this._portRadius, entry.Location.Y + heightHalf);
 		}
 
-		private Point CalculateCenter(NodeEntry entry)
+		private Rectangle CalculateInteractiveZone(Rectangle backgroundRect)
 		{
-			return new Point(entry.Location.X + (entry.Size.Width / 2), entry.Location.Y + (entry.Size.Height / 2));
+			var width = (int)(backgroundRect.Width * this._interactiveZoneRatio);
+			var height = (int)(backgroundRect.Height * this._interactiveZoneRatio);
+
+			var c = this.CalculateCenter(backgroundRect);
+			return new Rectangle(c.X - (width / 2), c.Y - (height / 2), width, height);
+		}
+
+		private Rectangle CalculateIconRect(Rectangle nodeRectangle)
+		{
+			return new Rectangle(nodeRectangle.X + this._iconMargin + this._portRadius, nodeRectangle.Y + this._iconMargin, nodeRectangle.Width - (this._iconMargin * 2) - (this._portRadius * 2), nodeRectangle.Height - (this._iconMargin * 2));
+		}
+
+		private bool IsNodeInputPortClicked(NodeEntry entry, Point clickLocation, out int portNumber)
+		{
+			for (int i = 0; i < entry.Node.InputCount; i++)
+			{
+				var pos = this.CalculateInputPortLocation(this._interacted, i);
+
+				if (DistanceBetween(pos.X, pos.Y, clickLocation.X, clickLocation.Y) < this._portRadius + this._outlinePen.Width)
+				{
+					portNumber = i + 1;
+					return true;
+				}
+			}
+
+			portNumber = -1;
+			return false;
+		}
+
+		private bool IsNodeOutputPortClicked(NodeEntry entry, Point clickLocation)
+		{
+			Point outputPos = this.CalculateOutputPortLocation(entry);
+			return DistanceBetween(outputPos.X, outputPos.Y, clickLocation.X, clickLocation.Y) < this._portRadius + this._outlinePen.Width;
+		}
+
+		private Point CalculateCenter(Rectangle rect)
+		{
+			return new Point(rect.X + (rect.Width / 2), rect.Y + (rect.Height / 2));
 		}
 
 		private void DrawAND(Graphics g, Rectangle backgroundRect, NodeEntry entry)
@@ -416,6 +456,11 @@ namespace Circuit
 		{
 			g.FillRectangle(this._iconBackgroundBrush, backgroundRect);
 			g.DrawRectangle(this._outlinePen, backgroundRect);
+
+			var interactiveRect = this.CalculateInteractiveZone(backgroundRect);
+			var brush = this._circuit.GetNodeState(entry.Node) ? this._onBrush : this._offBrush;
+			g.FillRectangle(brush, interactiveRect);
+			g.DrawRectangle(this._outlinePen, interactiveRect);
 		}
 
 		private bool Intersects(Point reference, Point offset, Size size)
@@ -430,21 +475,56 @@ namespace Circuit
 			var b = y1 - y2;
 			return Math.Sqrt((a * a) + (b * b));
 		}
+
+		private enum InteractionType
+		{
+			None,
+			Pressed,
+			Dragging,
+		}
 	}
 
 	class NodeEntry
 	{
-		public Node Node { get; set; }
+		private Node _node;
+		private Rectangle _rect;
+		private bool _isInteractive;
 
-		public Point Location { get; set; }
+		public Node Node
+		{
+			get => this._node;
+			set
+			{
+				this._node = value;
+				this._isInteractive = value is InteractiveNode;
+			}
+		}
 
-		public Size Size { get; set; }
+		public Rectangle Rect
+		{
+			get => this._rect;
+			set => this._rect = value;
+		}
+
+		public Point Location
+		{
+			get => this._rect.Location;
+			set => this._rect.Location = value;
+		}
+
+		public Size Size
+		{
+			get => this._rect.Size;
+			set => this._rect.Size = value;
+		}
+
+		public bool IsInteractive => this._isInteractive;
 
 		public NodeEntry(Node node, Point location, Size size)
 		{
 			this.Node = node;
-			this.Location = location;
-			this.Size = size;
+			this._rect = new Rectangle(location, size);
+			this._isInteractive = node is InteractiveNode;
 		}
 	}
 

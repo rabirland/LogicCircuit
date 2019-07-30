@@ -3,91 +3,37 @@ using System.Linq;
 using System.Collections.Generic;
 using System.Text;
 using LogicCircuit.Nodes;
+using System.Threading.Tasks;
+using System.Threading;
+using System.Collections.Concurrent;
 
 namespace LogicCircuit
 {
 	public class Circuit
 	{
-		private Dictionary<Node, bool> _nodes = new Dictionary<Node, bool>();
-		private List<Wire> _wires = new List<Wire>();
-		private Queue<Node> _nodesToRecalculate = new Queue<Node>();
+		private ConcurrentDictionary<Node, bool> _nodes = new ConcurrentDictionary<Node, bool>();
+		private ConcurrentBag<Wire> _wires = new ConcurrentBag<Wire>();
+		private Queue<Node> _nodesToRecalculateQueue = new Queue<Node>();
+		private HashSet<Node> _nodesRecalculatedBag = new HashSet<Node>();
+		private Task _backgroundTask;
 
 		public IEnumerable<Node> Nodes => this._nodes.Keys;
 		public IEnumerable<Wire> Wires => this._wires;
+		public event Action OnUpdate;
 
 		public Circuit()
 		{
-			var firstNode = new AndNode();
-			var secondNode1 = new OrNode();
-			var secondNode2 = new OrNode();
-			var finalNode = new AndNode();
-
-			var firstToSecond1 = new Wire(firstNode, secondNode1, 1);
-			var firstToSecond2 = new Wire(firstNode, secondNode2, 2);
-
-			var second1ToFinal = new Wire(secondNode1, finalNode, 1);
-			var second2ToFinal = new Wire(secondNode2, finalNode, 2);
-
-			this.AddNode(firstNode);
-			this.AddNode(secondNode1);
-			this.AddNode(secondNode2);
-			this.AddNode(finalNode);
-
-			this.Connect(firstToSecond1);
-			this.Connect(firstToSecond2);
-
-			this.Connect(second1ToFinal);
-			this.Connect(second2ToFinal);
-
-			this._nodes[firstNode] = true;
-			this.UpdateFrom(firstNode);
+			this._backgroundTask = Task.Factory.StartNew(this.BackgroundPollMethod, TaskCreationOptions.LongRunning);
 		}
 
 		public void UpdateFrom(Node node)
 		{
-			this._nodesToRecalculate.Clear();
-			this._nodesToRecalculate.Enqueue(node);
 
-			while (this._nodesToRecalculate.Count > 0)
-			{
-				var currentNode = this._nodesToRecalculate.Dequeue();
-				bool oldOutput = this._nodes[currentNode];
-				bool newOutput;
-				// Get all wire that connects to any of the current node's input ports
-				var connectedToInput = this._wires.Where(w => w.InputNode == currentNode);
-				if (connectedToInput.Count() > 0)
-				{
-					var inputs = new bool[currentNode.InputCount];
-					foreach (var wire in connectedToInput)
-					{
-						inputs[wire.InputNumber - 1] = this._nodes[wire.OutputNode];
-					}
-
-					newOutput = currentNode.CalculateOutput(inputs);
-				}
-				else
-				{
-					newOutput = oldOutput;
-				}
-
-
-				// Only update the states and only continue to the next node if the output was actually changed OR it is the first node in the loop
-				if (currentNode == node || oldOutput != newOutput)
-				{
-					this._nodes[currentNode] = newOutput;
-
-					var connectedToOutput = this._wires.Where(w => w.OutputNode == currentNode);
-					foreach (var nextNodeWire in connectedToOutput)
-					{
-						this._nodesToRecalculate.Enqueue(nextNodeWire.InputNode);
-					}
-				}
-			}
 		}
 
 		public void AddNode(Node node)
 		{
-			this._nodes.Add(node, false);
+			while (!this._nodes.TryAdd(node, false)) { };
 		}
 
 		public void Connect(Node output, Node input, int inputIndex)
@@ -133,14 +79,103 @@ namespace LogicCircuit
 			}
 		}
 
+		public bool GetNodeState(Node node) => this._nodes[node];
+
+		private async void BackgroundPollMethod()
+		{
+			while (true)
+			{
+				foreach (var nodeEntry in this._nodes)
+				{
+					bool oldValue = nodeEntry.Value;
+					bool newValue = this.CalculateNodeOutput(nodeEntry.Key);
+
+					if (oldValue != newValue) // If the node has changed it's value
+					{
+						this.UpdateTaskMethod(nodeEntry.Key); // Make a full update from this node towards it's output
+					}
+				}
+
+				await Task.Delay(100);
+			}
+		}
+
+		private void UpdateTaskMethod(Node node)
+		{
+			this._nodesToRecalculateQueue.Clear();
+			this._nodesRecalculatedBag.Clear();
+			this._nodesToRecalculateQueue.Enqueue(node);
+
+			while (this._nodesToRecalculateQueue.Count > 0)
+			{
+				var currentNode = this._nodesToRecalculateQueue.Dequeue();
+				bool bagContainsCurrentNode = this._nodesRecalculatedBag.Contains(currentNode); // The current node was already handled in this update phase => we made a circle
+				if (bagContainsCurrentNode) // We made a circle
+				{
+					this.OnUpdate?.Invoke();
+				}
+
+				bool oldOutput = this._nodes[currentNode];
+				bool newOutput;
+				// Get all wire that connects to any of the current node's input ports
+				var connectedToInput = this._wires.Where(w => w.InputNode == currentNode);
+				newOutput = this.CalculateNodeOutput(currentNode);
+
+				if (!bagContainsCurrentNode)
+				{
+					this._nodesRecalculatedBag.Add(currentNode);
+				}
+
+				// Only update the states and only continue to the next node if the output was actually changed OR it is the first node in the loop
+				if (currentNode == node || oldOutput != newOutput)
+				{
+					this._nodes[currentNode] = newOutput;
+
+					var connectedToOutput = this._wires.Where(w => w.OutputNode == currentNode);
+					foreach (var nextNodeWire in connectedToOutput)
+					{
+						this._nodesToRecalculateQueue.Enqueue(nextNodeWire.InputNode);
+					}
+				}
+			}
+
+			this.OnUpdate?.Invoke();
+		}
+
+		private bool[] GetNodeInputs(Node node)
+		{
+			var ret = new bool[node.InputCount];
+			var connectedToInput = this._wires.Where(w => w.InputNode == node);
+			foreach (var wire in connectedToInput)
+			{
+				ret[wire.InputNumber - 1] = this._nodes[wire.OutputNode];
+			}
+			return ret;
+		}
+
+		private bool CalculateNodeOutput(Node node)
+		{
+			var inputs = this.GetNodeInputs(node);
+			return node.CalculateOutput(inputs);
+		}
+
 		public struct Wire
 		{
-			public static readonly Wire Empty = default(Wire); // null, null, 0
+			public static readonly Wire Empty = default; // null, null, 0
 
+			/// <summary>
+			/// The node that his wire connects to the output port of
+			/// </summary>
 			public Node OutputNode { get; }
 
+			/// <summary>
+			/// The node that this wire connects to the input port of
+			/// </summary>
 			public Node InputNode { get; }
 
+			/// <summary>
+			/// The number (1-based) of the input port
+			/// </summary>
 			public int InputNumber { get; }
 
 			public Wire(Node outputNode, Node inputNode, int inputNumber)
@@ -154,10 +189,40 @@ namespace LogicCircuit
 				this.InputNumber = inputNumber;
 			}
 
-			public static bool operator ==(Wire a, Wire b) =>a.OutputNode == b.OutputNode && a.InputNumber == b.InputNumber && a.InputNumber == b.InputNumber;
-			public static bool operator !=(Wire a, Wire b) => a.OutputNode != b.OutputNode || a.InputNumber != b.InputNumber || a.InputNumber != b.InputNumber;
+			public static bool operator ==(Wire a, Wire b) =>a.OutputNode == b.OutputNode && a.InputNode == b.InputNode && a.InputNumber == b.InputNumber;
+			public static bool operator !=(Wire a, Wire b) => a.OutputNode != b.OutputNode || a.InputNode != b.InputNode || a.InputNumber != b.InputNumber;
 			public override bool Equals(object obj) => obj != null && obj is Wire w && w == this;
 			public override int GetHashCode() => this.OutputNode.GetHashCode() ^ this.InputNode.GetHashCode() ^ this.InputNumber.GetHashCode();
+		}
+
+		private struct TaskEntry
+		{
+			public Task Task { get; }
+			public CancellationTokenSource TokenSource { get; }
+
+			public TaskEntry(Task task, CancellationTokenSource tokenSource)
+			{
+				this.Task = task;
+				this.TokenSource = tokenSource;
+			}
+
+			public static bool operator ==(TaskEntry a, TaskEntry b) => a.Task == b.Task && a.TokenSource == b.TokenSource;
+			public static bool operator !=(TaskEntry a, TaskEntry b) => a.Task != b.Task || a.TokenSource != b.TokenSource;
+			public override bool Equals(object obj) => obj is TaskEntry te && te == this;
+			public override int GetHashCode() => this.Task.GetHashCode() ^ this.TokenSource.GetHashCode();
+		}
+
+		private struct NodeEntry
+		{
+			public Node Node { get; }
+
+			public bool State { get; }
+
+			public NodeEntry(Node node, bool state)
+			{
+				this.Node = node;
+				this.State = state;
+			}
 		}
 	}
 }

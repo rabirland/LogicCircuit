@@ -20,6 +20,6 @@ namespace LogicCircuit.Nodes
 		}
 
 		public override void Press() => this._enabled = !this._enabled;
-		public override void Release() => throw new NotImplementedException();
+		public override void Release() { }
 	}
 }
