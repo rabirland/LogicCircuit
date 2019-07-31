@@ -7,6 +7,7 @@ namespace LogicCircuit.Nodes
 	public class NotNode : Node
 	{
 		public override int InputCount => 1;
+		public override string GateName => "NOT";
 
 		public override bool CalculateOutput(params bool[] inputs)
 		{

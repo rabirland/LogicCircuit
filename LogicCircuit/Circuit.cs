@@ -13,8 +13,6 @@ namespace LogicCircuit
 	{
 		private ConcurrentDictionary<Node, bool> _nodes = new ConcurrentDictionary<Node, bool>();
 		private ConcurrentBag<Wire> _wires = new ConcurrentBag<Wire>();
-		private Queue<Node> _nodesToRecalculateQueue = new Queue<Node>();
-		private HashSet<Node> _nodesRecalculatedBag = new HashSet<Node>();
 		private Task _backgroundTask;
 
 		public IEnumerable<Node> Nodes => this._nodes.Keys;

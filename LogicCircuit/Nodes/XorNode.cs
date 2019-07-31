@@ -7,6 +7,7 @@ namespace LogicCircuit.Nodes
 	public class XorNode : Node
 	{
 		public override int InputCount => 2;
+		public override string GateName => "XOR";
 
 		public override bool CalculateOutput(params bool[] inputs)
 		{

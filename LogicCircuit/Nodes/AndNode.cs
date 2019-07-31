@@ -7,6 +7,7 @@ namespace LogicCircuit.Nodes
 	public class AndNode : Node
 	{
 		public override int InputCount => 2;
+		public override string GateName => "AND";
 
 		public override bool CalculateOutput(params bool[] inputs)
 		{

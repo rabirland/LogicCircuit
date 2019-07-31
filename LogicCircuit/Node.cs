@@ -10,6 +10,8 @@ namespace LogicCircuit
 
 		public string Name { get; set; }
 
+		public virtual string GateName => null;
+
 		public abstract bool CalculateOutput(params bool[] inputs);
 	}
 

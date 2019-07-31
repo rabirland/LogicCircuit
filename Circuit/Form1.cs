@@ -47,6 +47,7 @@ namespace Circuit
 		private int _iconMargin = 20;
 		private float _interactiveZoneRatio = 0.3f;
 		private int _portsMargin = 15;
+		private Font _gateNameFont = new Font("Arial", 12, FontStyle.Bold);
 
 		public Form1()
 		{
@@ -97,19 +98,22 @@ namespace Circuit
 
 		private void CircuitPanel_MouseDown(object sender, MouseEventArgs e)
 		{
-			this._interacted = this.GetNodeAtLocation(e.Location);
-			if (this._interacted != null)
+			if (e.Button == MouseButtons.Left)
 			{
-				this._nodeLocationAtDragStart = this._interacted.Location;
+				this._interacted = this.GetNodeAtLocation(e.Location);
+				if (this._interacted != null)
+				{
+					this._nodeLocationAtDragStart = this._interacted.Location;
 
-				if (this._interacted.IsInteractive && this.CalculateInteractiveZone(this.CalculateIconRect(this._interacted.Rect, this._interacted.InputOnly)).Contains(e.Location))
-				{
-					this._isPressed = true;
-					((InteractiveNode)this._interacted.Node).Press();
-				}
-				else
-				{
-					this._dragStart = e.Location;
+					if (this._interacted.IsInteractive && this.CalculateInteractiveZone(this.CalculateIconRect(this._interacted.Rect, this._interacted.InputOnly)).Contains(e.Location))
+					{
+						this._isPressed = true;
+						((InteractiveNode)this._interacted.Node).Press();
+					}
+					else
+					{
+						this._dragStart = e.Location;
+					}
 				}
 			}
 		}
@@ -293,12 +297,19 @@ namespace Circuit
 				else if (node.Node is NotNode) this.DrawNOT(g, iconRect, node);
 				else if (node.Node is SwitchNode) this.DrawSWITCH(g, iconRect, node, isOutput);
 				else if (node.Node is BulbNode) this.DrawBulb(g, iconRect, node, isOutput);
+
+				//this.DrawGateName(g, iconRect, node);
 			}
 		}
 
 		private void AddNode(Node node)
 		{
-			var nodeEntry = new NodeEntry(node, new Point(150, 150), new Size(100 + this._portRadius * 2, 100));
+			var nodeEntry = new NodeEntry(node, new Point(150, 150), new Size(100,100));
+
+			nodeEntry.Size =
+				nodeEntry.InputOnly
+				? new Size(100, 100 + this._portRadius * 2)
+				: new Size(100 + this._portRadius * 2, 100);
 
 			this._nodes.Add(nodeEntry);
 			this._circuit.AddNode(node);
@@ -497,6 +508,17 @@ namespace Circuit
 			var brush = isOn ? this._onBrush : this._offBrush;
 			g.FillEllipse(brush, backgroundRect);
 			g.DrawEllipse(this._outlinePen, backgroundRect);
+		}
+
+		private void DrawGateName(Graphics g, Rectangle backgroundRect, NodeEntry entry)
+		{
+			if (entry.Node.GateName != null)
+			{
+				var stringSize = g.MeasureString(entry.Node.GateName, this._gateNameFont);
+				var center = CalculateCenter(entry.Rect);
+
+				g.DrawString(entry.Node.GateName, this._gateNameFont, Brushes.Black, new Point(center.X - (int)(stringSize.Width / 2), center.Y - (int)(stringSize.Height / 2)));
+			}
 		}
 
 		private bool Intersects(Point reference, Point offset, Size size)

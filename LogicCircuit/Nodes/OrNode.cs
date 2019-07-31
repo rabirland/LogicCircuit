@@ -7,6 +7,7 @@ namespace LogicCircuit.Nodes
 	public class OrNode : Node
 	{
 		public override int InputCount => 2;
+		public override string GateName => "OR";
 
 		public override bool CalculateOutput(params bool[] inputs)
 		{
