@@ -23,7 +23,7 @@ namespace LogicCircuit
 
 		public Circuit()
 		{
-			this._backgroundTask = Task.Factory.StartNew(this.BackgroundPollMethod, TaskCreationOptions.LongRunning);
+			this._backgroundTask = Task.Factory.StartNew(this.TaskMethod, TaskCreationOptions.LongRunning);
 		}
 
 		public void UpdateFrom(Node node)
@@ -81,65 +81,38 @@ namespace LogicCircuit
 
 		public bool GetNodeState(Node node) => this._nodes[node];
 
-		private async void BackgroundPollMethod()
+		public bool GetInputPortState(Node node, int portNumber)
 		{
-			while (true)
+			var wire = this._wires.FirstOrDefault(w => w.InputNode == node && w.InputNumber == portNumber);
+			if (wire != default)
 			{
-				foreach (var nodeEntry in this._nodes)
-				{
-					bool oldValue = nodeEntry.Value;
-					bool newValue = this.CalculateNodeOutput(nodeEntry.Key);
-
-					if (oldValue != newValue) // If the node has changed it's value
-					{
-						this.UpdateTaskMethod(nodeEntry.Key); // Make a full update from this node towards it's output
-					}
-				}
-
-				await Task.Delay(100);
+				return this._nodes[wire.OutputNode];
+			}
+			else
+			{
+				return false;
 			}
 		}
 
-		private void UpdateTaskMethod(Node node)
+		private void TaskMethod()
 		{
-			this._nodesToRecalculateQueue.Clear();
-			this._nodesRecalculatedBag.Clear();
-			this._nodesToRecalculateQueue.Enqueue(node);
-
-			while (this._nodesToRecalculateQueue.Count > 0)
+			while (true)
 			{
-				var currentNode = this._nodesToRecalculateQueue.Dequeue();
-				bool bagContainsCurrentNode = this._nodesRecalculatedBag.Contains(currentNode); // The current node was already handled in this update phase => we made a circle
-				if (bagContainsCurrentNode) // We made a circle
+				var update = false;
+
+				Parallel.ForEach(this._nodes, nodeEntry =>
+				{
+					bool oldValue = nodeEntry.Value;
+					bool newValue = this.CalculateNodeOutput(nodeEntry.Key);
+					update |= oldValue != newValue;
+					this._nodes[nodeEntry.Key] = newValue;
+				});
+
+				if (update)
 				{
 					this.OnUpdate?.Invoke();
 				}
-
-				bool oldOutput = this._nodes[currentNode];
-				bool newOutput;
-				// Get all wire that connects to any of the current node's input ports
-				var connectedToInput = this._wires.Where(w => w.InputNode == currentNode);
-				newOutput = this.CalculateNodeOutput(currentNode);
-
-				if (!bagContainsCurrentNode)
-				{
-					this._nodesRecalculatedBag.Add(currentNode);
-				}
-
-				// Only update the states and only continue to the next node if the output was actually changed OR it is the first node in the loop
-				if (currentNode == node || oldOutput != newOutput)
-				{
-					this._nodes[currentNode] = newOutput;
-
-					var connectedToOutput = this._wires.Where(w => w.OutputNode == currentNode);
-					foreach (var nextNodeWire in connectedToOutput)
-					{
-						this._nodesToRecalculateQueue.Enqueue(nextNodeWire.InputNode);
-					}
-				}
 			}
-
-			this.OnUpdate?.Invoke();
 		}
 
 		private bool[] GetNodeInputs(Node node)

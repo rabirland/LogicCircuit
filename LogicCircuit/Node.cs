@@ -18,4 +18,9 @@ namespace LogicCircuit
 		public abstract void Press();
 		public abstract void Release();
 	}
+
+	public abstract class InputOnlyNode : Node
+	{
+		public override bool CalculateOutput(params bool[] inputs) => false;
+	}
 }

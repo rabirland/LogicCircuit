@@ -46,6 +46,7 @@ namespace Circuit
 		private int _portRadius = 15;
 		private int _iconMargin = 20;
 		private float _interactiveZoneRatio = 0.3f;
+		private int _portsMargin = 15;
 
 		public Form1()
 		{
@@ -89,6 +90,11 @@ namespace Circuit
 			this.AddNode(andNode);
 		}
 
+		private void Button6_Click(object sender, EventArgs e)
+		{
+			this.AddNode(new LogicCircuit.Nodes.BulbNode());
+		}
+
 		private void CircuitPanel_MouseDown(object sender, MouseEventArgs e)
 		{
 			this._interacted = this.GetNodeAtLocation(e.Location);
@@ -96,7 +102,7 @@ namespace Circuit
 			{
 				this._nodeLocationAtDragStart = this._interacted.Location;
 
-				if (this._interacted.IsInteractive && this.CalculateInteractiveZone(this.CalculateIconRect(this._interacted.Rect)).Contains(e.Location))
+				if (this._interacted.IsInteractive && this.CalculateInteractiveZone(this.CalculateIconRect(this._interacted.Rect, this._interacted.InputOnly)).Contains(e.Location))
 				{
 					this._isPressed = true;
 					((InteractiveNode)this._interacted.Node).Press();
@@ -115,12 +121,13 @@ namespace Circuit
 				intN.Release();
 			}
 			this._interacted = null;
+			this._isPressed = false;
 			this._didDragging = false;
 		}
 
 		private void CircuitPanel_MouseMove(object sender, MouseEventArgs e)
 		{
-			if (this._interacted != null)
+			if (this._interacted != null && !this._isPressed)
 			{
 				this._didDragging = true;
 				int deltaX = e.Location.X - this._dragStart.X;
@@ -221,10 +228,10 @@ namespace Circuit
 		private void RepaintCircuit(Graphics g)
 		{
 			// High quality drawing
-			g.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighQuality;
-			g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
-			g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
-			g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+			g.CompositingQuality = CompositingQuality.HighQuality;
+			g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+			g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+			g.SmoothingMode = SmoothingMode.HighQuality;
 
 			var halfRadius = this._portRadius / 2;
 
@@ -258,25 +265,34 @@ namespace Circuit
 					g.DrawLine(this._outlinePen, inputPos.Value, center);
 
 					var inputPortRect = new RectangleF(inputPos.Value.X - halfRadius, inputPos.Value.Y - halfRadius, this._portRadius, this._portRadius);
-					g.FillEllipse(this._offBrush, inputPortRect);
+					var isPortOn = this._circuit.GetInputPortState(node.Node, inputPos.Key);
+					var inputBrush = isPortOn ? this._onBrush : this._offBrush;
+					g.FillEllipse(inputBrush, inputPortRect);
 					g.DrawEllipse(inputPortOutLinePen, inputPortRect);
 				}
 
+				var isOutput = this._circuit.GetNodeState(node.Node);
 				// Draw Output Port
-				var outputPos = this.CalculateOutputPortLocation(node);
-				g.DrawLine(this._outlinePen, outputPos, center);
-				var outputPortRect = new RectangleF(outputPos.X - halfRadius, outputPos.Y - halfRadius, this._portRadius, this._portRadius);
-				Pen outputPortOutLinePen = (this._selected == node && this._selectedPort == 0) ? this._selectedOutlinePen : this._outlinePen;
-				g.FillEllipse(this._offBrush, outputPortRect);
-				g.DrawEllipse(outputPortOutLinePen, outputPortRect);
+				if (!node.InputOnly)
+				{
+					var outputPos = this.CalculateOutputPortLocation(node);
+					g.DrawLine(this._outlinePen, outputPos, center);
+					var outputPortRect = new RectangleF(outputPos.X - halfRadius, outputPos.Y - halfRadius, this._portRadius, this._portRadius);
+					Pen outputPortOutLinePen = (this._selected == node && this._selectedPort == 0) ? this._selectedOutlinePen : this._outlinePen;
+					
+					var outputBrush = isOutput ? this._onBrush : this._offBrush;
+					g.FillEllipse(outputBrush, outputPortRect);
+					g.DrawEllipse(outputPortOutLinePen, outputPortRect);
+				}
 
 				// Draw Icon
-				var iconRect = this.CalculateIconRect(node.Rect);
+				var iconRect = this.CalculateIconRect(node.Rect, node.InputOnly);
 				if (node.Node is AndNode) this.DrawAND(g, iconRect, node);
 				else if (node.Node is OrNode) this.DrawOR(g, iconRect, node);
 				else if (node.Node is XorNode) this.DrawXOR(g, iconRect, node);
 				else if (node.Node is NotNode) this.DrawNOT(g, iconRect, node);
-				else if (node.Node is SwitchNode) this.DrawSWITCH(g, iconRect, node);
+				else if (node.Node is SwitchNode) this.DrawSWITCH(g, iconRect, node, isOutput);
+				else if (node.Node is BulbNode) this.DrawBulb(g, iconRect, node, isOutput);
 			}
 		}
 
@@ -314,10 +330,17 @@ namespace Circuit
 
 		private Point CalculateInputPortLocation(NodeEntry entry, int portIndex)
 		{
-			var portPartHeight = (entry.Size.Height - this._portRadius * 2) / entry.Node.InputCount;
-			var portPartHalf = portPartHeight / 2;
+			var partSize =
+				entry.InputOnly
+				? (entry.Rect.Width - (this._portsMargin * 2)) / entry.Node.InputCount
+				: (entry.Rect.Height - (this._portsMargin * 2)) / entry.Node.InputCount;
 
-			return new Point(entry.Location.X + this._portRadius, entry.Location.Y + this._portRadius + (portIndex * portPartHeight) + portPartHalf);
+			var partHalf = partSize / 2;
+
+			return
+				entry.InputOnly
+				? new Point(entry.Rect.X + (portIndex * partSize) + partHalf + this._portsMargin, entry.Rect.Bottom - this._portRadius) // Input port on bottom
+				: new Point(entry.Rect.X + this._portRadius, entry.Rect.Y + (portIndex * partSize) + partHalf + this._portsMargin); // Input port on left
 		}
 
 		private Point CalculateOutputPortLocation(NodeEntry entry)
@@ -336,9 +359,15 @@ namespace Circuit
 			return new Rectangle(c.X - (width / 2), c.Y - (height / 2), width, height);
 		}
 
-		private Rectangle CalculateIconRect(Rectangle nodeRectangle)
+		private Rectangle CalculateIconRect(Rectangle nodeRectangle, bool isInputOnBottom)
 		{
-			return new Rectangle(nodeRectangle.X + this._iconMargin + this._portRadius, nodeRectangle.Y + this._iconMargin, nodeRectangle.Width - (this._iconMargin * 2) - (this._portRadius * 2), nodeRectangle.Height - (this._iconMargin * 2));
+			var marginOnInputSide = this._iconMargin + this._portRadius;
+			var marginOnStandardSide = this._iconMargin;
+
+			var bottomMargin = isInputOnBottom ? marginOnInputSide : marginOnStandardSide;
+			var leftMargin = isInputOnBottom ? marginOnStandardSide : marginOnInputSide;
+
+			return new Rectangle(nodeRectangle.X + leftMargin, nodeRectangle.Y + this._iconMargin, nodeRectangle.Width -  (leftMargin * 2), nodeRectangle.Height - (bottomMargin * 2));
 		}
 
 		private bool IsNodeInputPortClicked(NodeEntry entry, Point clickLocation, out int portNumber)
@@ -452,15 +481,22 @@ namespace Circuit
 			g.DrawPath(this._outlinePen, path);
 		}
 
-		private void DrawSWITCH(Graphics g, Rectangle backgroundRect, NodeEntry entry)
+		private void DrawSWITCH(Graphics g, Rectangle backgroundRect, NodeEntry entry, bool isOn)
 		{
 			g.FillRectangle(this._iconBackgroundBrush, backgroundRect);
 			g.DrawRectangle(this._outlinePen, backgroundRect);
 
 			var interactiveRect = this.CalculateInteractiveZone(backgroundRect);
-			var brush = this._circuit.GetNodeState(entry.Node) ? this._onBrush : this._offBrush;
+			var brush = isOn ? this._onBrush : this._offBrush;
 			g.FillRectangle(brush, interactiveRect);
 			g.DrawRectangle(this._outlinePen, interactiveRect);
+		}
+
+		private void DrawBulb(Graphics g, Rectangle backgroundRect, NodeEntry entry, bool isOn)
+		{
+			var brush = isOn ? this._onBrush : this._offBrush;
+			g.FillEllipse(brush, backgroundRect);
+			g.DrawEllipse(this._outlinePen, backgroundRect);
 		}
 
 		private bool Intersects(Point reference, Point offset, Size size)
@@ -489,6 +525,7 @@ namespace Circuit
 		private Node _node;
 		private Rectangle _rect;
 		private bool _isInteractive;
+		private bool _inputOnly;
 
 		public Node Node
 		{
@@ -520,17 +557,24 @@ namespace Circuit
 
 		public bool IsInteractive => this._isInteractive;
 
+		public bool InputOnly => this._inputOnly;
+
 		public NodeEntry(Node node, Point location, Size size)
 		{
 			this.Node = node;
 			this._rect = new Rectangle(location, size);
 			this._isInteractive = node is InteractiveNode;
+			this._inputOnly = node is InputOnlyNode;
 		}
 	}
 
 	class WireEntry
 	{
 		public LogicCircuit.Circuit.Wire Wire { get; }
+
+		public Point Endpoint1 { get; set; }
+
+		public Point Endpoint2 { get; set; }
 
 		public WireEntry(LogicCircuit.Circuit.Wire wire)
 		{
