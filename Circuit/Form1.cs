@@ -167,7 +167,7 @@ namespace Circuit
 						// There is already have a selected output port and not on the same object
 						if (this._selectedPort != null && this._selectedPort == 0 && this._selected != this._interacted)
 						{
-							this.AddWire(new LogicCircuit.Circuit.Wire(this._selected.Node, this._interacted.Node, portNumber));
+							this.AddWire(new Wire(this._selected.Node, this._interacted.Node, portNumber));
 
 							// Clear port selection
 							this._selected = null;
@@ -185,7 +185,7 @@ namespace Circuit
 						// There was an input port selected and not on the same object => connect
 						if (this._selectedPort != null && this._selectedPort > 0 && this._selected != this._interacted)
 						{
-							this.AddWire(new LogicCircuit.Circuit.Wire(this._interacted.Node, this._selected.Node, this._selectedPort.Value));
+							this.AddWire(new Wire(this._interacted.Node, this._selected.Node, this._selectedPort.Value));
 
 							// Clear port selection
 							this._selected = null;
@@ -367,7 +367,7 @@ namespace Circuit
 			this.CircuitPanel.Refresh();
 		}
 
-		private void AddWire(LogicCircuit.Circuit.Wire wire)
+		private void AddWire(Wire wire)
 		{
 			var wireEntry = new WireEntry(wire);
 
@@ -590,7 +590,7 @@ namespace Circuit
 				&& (reference.Y >= offset.Y && reference.Y <= offset.Y + size.Height);
 		}
 
-		private Double DistanceBetween(Point p1, Point p2)
+		private double DistanceBetween(Point p1, Point p2)
 		{
 			var a = p1.X - p2.X;
 			var b = p1.Y - p2.Y;
@@ -677,13 +677,13 @@ namespace Circuit
 
 	class WireEntry
 	{
-		public LogicCircuit.Circuit.Wire Wire { get; }
+		public Wire Wire { get; }
 
 		public Point Endpoint1 { get; set; }
 
 		public Point Endpoint2 { get; set; }
 
-		public WireEntry(LogicCircuit.Circuit.Wire wire)
+		public WireEntry(Wire wire)
 		{
 			this.Wire = wire;
 		}
