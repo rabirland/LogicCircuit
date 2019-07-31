@@ -12,11 +12,11 @@ namespace LogicCircuit
 	public class Circuit
 	{
 		private ConcurrentDictionary<Node, bool> _nodes = new ConcurrentDictionary<Node, bool>();
-		private ConcurrentBag<Wire> _wires = new ConcurrentBag<Wire>();
+		private ConcurrentDictionary<Wire, byte> _wires = new ConcurrentDictionary<Wire, byte>();
 		private Task _backgroundTask;
 
 		public IEnumerable<Node> Nodes => this._nodes.Keys;
-		public IEnumerable<Wire> Wires => this._wires;
+		public IEnumerable<Wire> Wires => this._wires.Keys;
 		public event Action OnUpdate;
 
 		public Circuit()
@@ -34,6 +34,19 @@ namespace LogicCircuit
 			while (!this._nodes.TryAdd(node, false)) { };
 		}
 
+		public void RemoveNode(Node node)
+		{
+			// Delete all wire associated with the node
+			var wiresToDelete = this.Wires.Where(w => w.InputNode == node || w.OutputNode == node).ToArray();
+			foreach (var wire in wiresToDelete)
+			{
+				while (!this._wires.TryRemove(wire, out byte value)) { }
+			}
+
+			// Remove the node
+			while (!this._nodes.TryRemove(node, out bool value)) { }
+		}
+
 		public void Connect(Node output, Node input, int inputIndex)
 		{
 			var wire = new Wire(output, input, inputIndex);
@@ -46,15 +59,15 @@ namespace LogicCircuit
 			if (wire != Wire.Empty)
 			{
 				// Check if we already has such an entry
-				if (!this._wires.Contains(wire))
+				if (!this.Wires.Contains(wire))
 				{
 					// Check if the targeted input port is free
-					if (!this._wires.Any(w => w.InputNode == wire.InputNode && w.InputNumber == wire.InputNumber))
+					if (!this.Wires.Any(w => w.InputNode == wire.InputNode && w.InputNumber == wire.InputNumber))
 					{
 						// Check if it is a valid wire index for the input node
 						if (wire.InputNumber <= wire.InputNode.InputCount && wire.InputNumber > 0)
 						{
-							this._wires.Add(wire);
+							while (!this._wires.TryAdd(wire, 0)) { }
 						}
 						else
 						{
@@ -77,11 +90,16 @@ namespace LogicCircuit
 			}
 		}
 
+		public void Disconnect(Wire wire)
+		{
+			while (!this._wires.TryRemove(wire, out byte value)) { }
+		}
+
 		public bool GetNodeState(Node node) => this._nodes[node];
 
 		public bool GetInputPortState(Node node, int portNumber)
 		{
-			var wire = this._wires.FirstOrDefault(w => w.InputNode == node && w.InputNumber == portNumber);
+			var wire = this.Wires.FirstOrDefault(w => w.InputNode == node && w.InputNumber == portNumber);
 			if (wire != default)
 			{
 				return this._nodes[wire.OutputNode];
@@ -116,7 +134,7 @@ namespace LogicCircuit
 		private bool[] GetNodeInputs(Node node)
 		{
 			var ret = new bool[node.InputCount];
-			var connectedToInput = this._wires.Where(w => w.InputNode == node);
+			var connectedToInput = this.Wires.Where(w => w.InputNode == node);
 			foreach (var wire in connectedToInput)
 			{
 				ret[wire.InputNumber - 1] = this._nodes[wire.OutputNode];

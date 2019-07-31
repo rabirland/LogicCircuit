@@ -28,6 +28,7 @@
 		/// </summary>
 		private void InitializeComponent()
 		{
+			this.components = new System.ComponentModel.Container();
 			this.button1 = new System.Windows.Forms.Button();
 			this.CircuitPanel = new System.Windows.Forms.PictureBox();
 			this.button2 = new System.Windows.Forms.Button();
@@ -35,7 +36,13 @@
 			this.button4 = new System.Windows.Forms.Button();
 			this.button5 = new System.Windows.Forms.Button();
 			this.button6 = new System.Windows.Forms.Button();
+			this.wireRightClickMenu = new System.Windows.Forms.ContextMenuStrip(this.components);
+			this.deleteToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+			this.nodeRightClickMenu = new System.Windows.Forms.ContextMenuStrip(this.components);
+			this.deleteToolStripMenuItem1 = new System.Windows.Forms.ToolStripMenuItem();
 			((System.ComponentModel.ISupportInitialize)(this.CircuitPanel)).BeginInit();
+			this.wireRightClickMenu.SuspendLayout();
+			this.nodeRightClickMenu.SuspendLayout();
 			this.SuspendLayout();
 			// 
 			// button1
@@ -111,6 +118,34 @@
 			this.button6.UseVisualStyleBackColor = true;
 			this.button6.Click += new System.EventHandler(this.Button6_Click);
 			// 
+			// wireRightClickMenu
+			// 
+			this.wireRightClickMenu.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
+            this.deleteToolStripMenuItem});
+			this.wireRightClickMenu.Name = "wireRightClickMenu";
+			this.wireRightClickMenu.Size = new System.Drawing.Size(108, 26);
+			// 
+			// deleteToolStripMenuItem
+			// 
+			this.deleteToolStripMenuItem.Name = "deleteToolStripMenuItem";
+			this.deleteToolStripMenuItem.Size = new System.Drawing.Size(107, 22);
+			this.deleteToolStripMenuItem.Text = "Delete";
+			this.deleteToolStripMenuItem.Click += new System.EventHandler(this.DeleteToolStripMenuItem_Click);
+			// 
+			// nodeRightClickMenu
+			// 
+			this.nodeRightClickMenu.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
+            this.deleteToolStripMenuItem1});
+			this.nodeRightClickMenu.Name = "nodeRightClickMenu";
+			this.nodeRightClickMenu.Size = new System.Drawing.Size(181, 48);
+			// 
+			// deleteToolStripMenuItem1
+			// 
+			this.deleteToolStripMenuItem1.Name = "deleteToolStripMenuItem1";
+			this.deleteToolStripMenuItem1.Size = new System.Drawing.Size(180, 22);
+			this.deleteToolStripMenuItem1.Text = "Delete";
+			this.deleteToolStripMenuItem1.Click += new System.EventHandler(this.DeleteToolStripMenuItem1_Click);
+			// 
 			// Form1
 			// 
 			this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
@@ -127,6 +162,8 @@
 			this.Text = "Form1";
 			this.Load += new System.EventHandler(this.Form1_Load);
 			((System.ComponentModel.ISupportInitialize)(this.CircuitPanel)).EndInit();
+			this.wireRightClickMenu.ResumeLayout(false);
+			this.nodeRightClickMenu.ResumeLayout(false);
 			this.ResumeLayout(false);
 
 		}
@@ -139,6 +176,10 @@
 		private System.Windows.Forms.Button button4;
 		private System.Windows.Forms.Button button5;
 		private System.Windows.Forms.Button button6;
+		private System.Windows.Forms.ContextMenuStrip wireRightClickMenu;
+		private System.Windows.Forms.ToolStripMenuItem deleteToolStripMenuItem;
+		private System.Windows.Forms.ContextMenuStrip nodeRightClickMenu;
+		private System.Windows.Forms.ToolStripMenuItem deleteToolStripMenuItem1;
 	}
 }
 

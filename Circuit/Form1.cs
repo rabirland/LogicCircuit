@@ -20,6 +20,7 @@ namespace Circuit
 		private const float OrCurvatureTension = 0.8f;
 		private const int XorLeftOffset = 5;
 		private const int NotTipRadius = 5;
+		private const int WireSelectMaxDistance = 10;
 
 		// Data
 		private LogicCircuit.Circuit _circuit = new LogicCircuit.Circuit();
@@ -29,9 +30,11 @@ namespace Circuit
 		// Editing
 		private NodeEntry _selected = null;
 		private int? _selectedPort;
+		private WireEntry _selectedWire = null;
 
 		// Dragging
 		private NodeEntry _interacted = null;
+		private bool _startedDragging = false;
 		private bool _didDragging = false;
 		private bool _isPressed = false;
 		private Point _dragStart = new Point();
@@ -98,22 +101,20 @@ namespace Circuit
 
 		private void CircuitPanel_MouseDown(object sender, MouseEventArgs e)
 		{
-			if (e.Button == MouseButtons.Left)
+			this._interacted = this.GetNodeAtLocation(e.Location);
+			if (this._interacted != null && e.Button == MouseButtons.Left)
 			{
-				this._interacted = this.GetNodeAtLocation(e.Location);
-				if (this._interacted != null)
-				{
-					this._nodeLocationAtDragStart = this._interacted.Location;
+				this._nodeLocationAtDragStart = this._interacted.Location;
 
-					if (this._interacted.IsInteractive && this.CalculateInteractiveZone(this.CalculateIconRect(this._interacted.Rect, this._interacted.InputOnly)).Contains(e.Location))
-					{
-						this._isPressed = true;
-						((InteractiveNode)this._interacted.Node).Press();
-					}
-					else
-					{
-						this._dragStart = e.Location;
-					}
+				if (this._interacted.IsInteractive && this.CalculateInteractiveZone(this.CalculateIconRect(this._interacted.Rect, this._interacted.InputOnly)).Contains(e.Location))
+				{
+					this._isPressed = true;
+					((InteractiveNode)this._interacted.Node).Press();
+				}
+				else
+				{
+					this._dragStart = e.Location;
+					this._startedDragging = true;
 				}
 			}
 		}
@@ -126,12 +127,13 @@ namespace Circuit
 			}
 			this._interacted = null;
 			this._isPressed = false;
+			this._startedDragging = false;
 			this._didDragging = false;
 		}
 
 		private void CircuitPanel_MouseMove(object sender, MouseEventArgs e)
 		{
-			if (this._interacted != null && !this._isPressed)
+			if (this._interacted != null && !this._isPressed && this._startedDragging)
 			{
 				this._didDragging = true;
 				int deltaX = e.Location.X - this._dragStart.X;
@@ -197,7 +199,7 @@ namespace Circuit
 					}
 					else // Not clicked on output port either => simply clicked on the object somewhere
 					{
-
+						
 					}
 				}
 				else // Clicked outside of a node
@@ -208,14 +210,59 @@ namespace Circuit
 			}
 			else if (e.Button == MouseButtons.Right)
 			{
-				this._selected = _interacted;
-				this._selectedPort = null;
+				WireEntry wireEntry;
+				if (this._interacted != null) // Clicked on node
+				{
+					this._selected = _interacted;
+					this._selectedPort = null;
+					this.nodeRightClickMenu.Show(this.CircuitPanel.PointToScreen(e.Location));
+				}
+				else if ((wireEntry = GetWireAt(e.Location)) != null) // Clicked near wire
+				{
+					this._selectedWire = wireEntry;
+					wireRightClickMenu.Show(this.CircuitPanel.PointToScreen(e.Location));
+				}
+				else
+				{
+					this._selected = null;
+					this._selectedWire = null;
+					this._selectedPort = null;
+				}
 			}
 
 			// Stop Dragging
 			this._interacted = null;
 
 			this.CircuitPanel.Refresh();
+		}
+
+		private void DeleteToolStripMenuItem_Click(object sender, EventArgs e) // Wire
+		{
+			if (this._selectedWire != null)
+			{
+				this._circuit.Disconnect(this._selectedWire.Wire);
+				this._wires.Remove(this._selectedWire);
+				this._selectedWire = null;
+				this.CircuitPanel.Refresh();
+			}	
+		}
+
+		private void DeleteToolStripMenuItem1_Click(object sender, EventArgs e) // Node
+		{
+			if (this._selected != null && this._selectedPort == null)
+			{
+				this._circuit.RemoveNode(this._selected.Node);
+				// Delete all wire
+				var deletedWires = this._wires.Where(w => w.Wire.InputNode == this._selected.Node || w.Wire.OutputNode == this._selected.Node).ToArray();
+				foreach (var wire in deletedWires)
+				{
+					this._wires.Remove(wire);
+				}
+
+				this._nodes.Remove(this._selected);
+				this._selected = null;
+				this.CircuitPanel.Refresh();
+			}
 		}
 
 		private void CircuitPanel_Paint(object sender, PaintEventArgs e)
@@ -248,6 +295,9 @@ namespace Circuit
 
 				Point from = this.CalculateOutputPortLocation(outputNode);
 				Point to = this.CalculateInputPortLocation(inputNode, inputIndex);
+
+				wire.Endpoint1 = from;
+				wire.Endpoint2 = to;
 
 				g.DrawLine(this._outlinePen, from, to);
 			}
@@ -330,6 +380,19 @@ namespace Circuit
 			return this._nodes.LastOrDefault(n => Intersects(location, n.Location, n.Size));
 		}
 
+		private WireEntry GetWireAt(Point location)
+		{
+			foreach (var wire in this._wires)
+			{
+				if (DistanceFrom(location, wire.Endpoint1, wire.Endpoint2) < WireSelectMaxDistance)
+				{
+					return wire;
+				}
+			}
+
+			return null;
+		}
+
 		// Helpers
 		private IEnumerable<KeyValuePair<int, Point>> CalculateInputPortLocations(NodeEntry entry)
 		{
@@ -387,7 +450,7 @@ namespace Circuit
 			{
 				var pos = this.CalculateInputPortLocation(this._interacted, i);
 
-				if (DistanceBetween(pos.X, pos.Y, clickLocation.X, clickLocation.Y) < this._portRadius + this._outlinePen.Width)
+				if (DistanceBetween(pos, clickLocation) < this._portRadius + this._outlinePen.Width)
 				{
 					portNumber = i + 1;
 					return true;
@@ -401,7 +464,7 @@ namespace Circuit
 		private bool IsNodeOutputPortClicked(NodeEntry entry, Point clickLocation)
 		{
 			Point outputPos = this.CalculateOutputPortLocation(entry);
-			return DistanceBetween(outputPos.X, outputPos.Y, clickLocation.X, clickLocation.Y) < this._portRadius + this._outlinePen.Width;
+			return DistanceBetween(outputPos, clickLocation) < this._portRadius + this._outlinePen.Width;
 		}
 
 		private Point CalculateCenter(Rectangle rect)
@@ -527,11 +590,33 @@ namespace Circuit
 				&& (reference.Y >= offset.Y && reference.Y <= offset.Y + size.Height);
 		}
 
-		private double DistanceBetween(int x1, int y1, int x2, int y2)
+		private Double DistanceBetween(Point p1, Point p2)
 		{
-			var a = x1 - x2;
-			var b = y1 - y2;
+			var a = p1.X - p2.X;
+			var b = p1.Y - p2.Y;
 			return Math.Sqrt((a * a) + (b * b));
+		}
+
+		private double DistanceFrom(Point p, Point l1, Point l2)
+		{
+			var distFromL1 = DistanceBetween(p, l1);
+			var distFromL2 = DistanceBetween(p, l2);
+			var lineLength = DistanceBetween(l1, l2);
+
+			if (distFromL1 <= lineLength && distFromL2 <= lineLength) // The point is closer to both endpoint than the length of line => the point is somewhere between the two endpoint
+			{
+				var y = l2.Y - l1.Y;
+				var x = l2.X - l1.X;
+
+				var top = Math.Abs((y * p.X) - (x * p.Y) + (l2.X * l1.Y) - (l2.Y * l1.X));
+				var bottom = Math.Sqrt((y * y) + (x * x));
+
+				return top / bottom;
+			}
+			else // Point is outside of the viccinity of the line
+			{
+				return double.MaxValue;
+			}
 		}
 
 		private enum InteractionType
